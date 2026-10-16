@@ -5,6 +5,7 @@ const helmet = require('helmet')
 const morgan = require('morgan')
 const pool = require('./config/db')
 const userRoutes = require('./routes/userRoutes')
+const rideRoutes = require('./routes/rideRoutes')
 
 const app = express()
 
@@ -49,5 +50,9 @@ app.get('/api/db-test', async (req, res) => {
 })
 
 app.use('/api/users', userRoutes)
+app.use('/api/rides', rideRoutes)
 
 module.exports = app
+
+
+
