@@ -1,2 +1,4 @@
 node_modules/
 .env
+src/controllers/rideController.backup.js
+src/controllers/rideController.fare-backup.js
