@@ -194,4 +194,80 @@ const getMe = async (req, res) => {
 }
 
 
-module.exports = { createUser, loginUser, getUsers,  getMe }
+const updateMe = async (req, res) => {
+  try {
+    const { full_name, phone } = req.body
+
+    if (full_name !== undefined && !full_name.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Full name cannot be empty',
+      })
+    }
+
+    if (phone !== undefined && phone !== null && typeof phone !== 'string') {
+      return res.status(400).json({
+        success: false,
+        message: 'Phone must be text',
+      })
+    }
+
+    if (phone && !/^[0-9+\-\s()]{7,20}$/.test(phone.trim())) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter a valid phone number',
+      })
+    }
+
+    if (full_name === undefined && phone === undefined) {
+      return res.status(400).json({
+        success: false,
+        message: 'Provide full_name or phone to update',
+      })
+    }
+
+    const result = await pool.query(
+      `UPDATE users
+       SET full_name = COALESCE($1, full_name),
+           phone = CASE WHEN $2::boolean THEN $3 ELSE phone END
+       WHERE id = $4
+       RETURNING id, full_name, email, phone, role, created_at`,
+      [
+        full_name === undefined ? null : full_name.trim(),
+        phone !== undefined,
+        phone === null || phone.trim() === '' ? null : phone.trim(),
+        req.user.userId,
+      ]
+    )
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      })
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Profile updated successfully',
+      user: result.rows[0],
+    })
+  } catch (error) {
+    if (error.code === '23505') {
+      return res.status(409).json({
+        success: false,
+        message: 'Phone number already exists',
+      })
+    }
+
+    console.error('Update profile error:', error.message)
+
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to update profile',
+    })
+  }
+}
+
+
+module.exports = { createUser, loginUser, getUsers,  getMe, updateMe }

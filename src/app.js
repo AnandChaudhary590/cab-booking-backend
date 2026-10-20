@@ -6,6 +6,7 @@ const morgan = require('morgan')
 const pool = require('./config/db')
 const userRoutes = require('./routes/userRoutes')
 const rideRoutes = require('./routes/rideRoutes')
+const paymentRoutes = require('./routes/paymentRoutes')
 
 const app = express()
 
@@ -51,6 +52,7 @@ app.get('/api/db-test', async (req, res) => {
 
 app.use('/api/users', userRoutes)
 app.use('/api/rides', rideRoutes)
+app.use('/api/payments', paymentRoutes)
 
 module.exports = app
 

@@ -1,5 +1,18 @@
 const pool = require('../config/db')
 
+const emitRideUpdate = (req, ride, event, message) => {
+  const io = req.app.get('io')
+
+  if (!io || !ride?.id) return
+
+  io.to(`ride:${ride.id}`).emit('ride-update', {
+    event,
+    message,
+    ride,
+    timestamp: new Date().toISOString(),
+  })
+}
+
 // Rider: Create a new ride
 
 const createRide = async (req, res) => {
@@ -109,19 +122,45 @@ const createRide = async (req, res) => {
 
     const fare = Math.max(70, Math.round(50 + distanceKm * 12))
 
-    const result = await pool.query(
-      `INSERT INTO rides
-        (rider_id, pickup_address, dropoff_address, fare)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, rider_id, pickup_address, dropoff_address,
-                 status, fare, created_at`,
-      [
-        req.user.userId,
-        pickup_address.trim(),
-        dropoff_address.trim(),
-        fare,
-      ]
+    
+const result = await pool.query(
+  `INSERT INTO rides
+    (
+      rider_id,
+      pickup_address,
+      dropoff_address,
+      pickup_lat,
+      pickup_lng,
+      dropoff_lat,
+      dropoff_lng,
+      fare
     )
+   VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+   RETURNING id, rider_id, pickup_address, dropoff_address,
+             pickup_lat, pickup_lng, dropoff_lat, dropoff_lng,
+             status, fare, created_at`,
+  [
+    req.user.userId,
+    pickup_address.trim(),
+    dropoff_address.trim(),
+    pickupLat,
+    pickupLng,
+    dropoffLat,
+    dropoffLng,
+    fare,
+  ]
+)
+
+    // Notify drivers about the new ride request
+const io = req.app.get('io')
+
+if (io) {
+  io.emit('new-ride-request', {
+    message: 'A new ride request is available',
+    ride: result.rows[0],
+    timestamp: new Date().toISOString(),
+  })
+}
 
     return res.status(201).json({
       success: true,
@@ -148,12 +187,25 @@ const createRide = async (req, res) => {
   }
 }
 
-// Rider: View their own rides
+
+ // Rider: View their own rides
 const getMyRides = async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT id, rider_id, driver_id, pickup_address, dropoff_address,
-              status, fare, created_at, updated_at
+      `SELECT
+         id,
+         rider_id,
+         driver_id,
+         pickup_address,
+         dropoff_address,
+         pickup_lat,
+         pickup_lng,
+         dropoff_lat,
+         dropoff_lng,
+         status,
+         fare,
+         created_at,
+         updated_at
        FROM rides
        WHERE rider_id = $1
        ORDER BY created_at DESC`,
@@ -176,24 +228,32 @@ const getMyRides = async (req, res) => {
 }
 
 
-// Driver: View available ride requests
+
+ 
+ // Driver: View available ride requests
 const getAvailableRides = async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT
          r.id,
          r.rider_id,
+         r.driver_id,
          u.full_name AS rider_name,
          r.pickup_address,
          r.dropoff_address,
+         r.pickup_lat,
+         r.pickup_lng,
+         r.dropoff_lat,
+         r.dropoff_lng,
          r.status,
          r.fare,
-         r.created_at
+         r.created_at,
+         r.updated_at
        FROM rides r
        JOIN users u ON u.id = r.rider_id
        WHERE r.status = 'requested'
          AND r.rider_id <> $1
-       ORDER BY r.created_at ASC`,
+       ORDER BY r.created_at DESC`,
       [req.user.userId]
     )
 
@@ -212,7 +272,7 @@ const getAvailableRides = async (req, res) => {
   }
 }
 
-// Driver: Accept a ride
+ // Driver: Accept a ride
 const acceptRide = async (req, res) => {
   try {
     const { id } = req.params
@@ -243,6 +303,14 @@ const acceptRide = async (req, res) => {
         message: 'Ride is no longer available to accept',
       })
     }
+
+    // Real-time notification: driver accepted the ride
+    emitRideUpdate(
+      req,
+      result.rows[0],
+      'accepted',
+      'Driver accepted your ride'
+    )
 
     return res.status(200).json({
       success: true,
@@ -382,7 +450,8 @@ const calculateFare = async (req, res) => {
   }
 }
 
-// Driver: Start an accepted ride
+
+ // Driver: Start an accepted ride
 const startRide = async (req, res) => {
   try {
     const { id } = req.params
@@ -413,6 +482,14 @@ const startRide = async (req, res) => {
       })
     }
 
+    // Real-time notification: ride started
+    emitRideUpdate(
+      req,
+      result.rows[0],
+      'ongoing',
+      'Your ride has started'
+    )
+
     return res.status(200).json({
       success: true,
       message: 'Ride started successfully',
@@ -428,7 +505,8 @@ const startRide = async (req, res) => {
   }
 }
 
-// Driver: Complete an ongoing ride
+
+ // Driver: Complete an ongoing ride
 const completeRide = async (req, res) => {
   try {
     const { id } = req.params
@@ -458,6 +536,14 @@ const completeRide = async (req, res) => {
         message: 'Ride cannot be completed. Check ride status and driver assignment.',
       })
     }
+
+    // Real-time notification: ride completed
+    emitRideUpdate(
+      req,
+      result.rows[0],
+      'completed',
+      'Your ride has been completed'
+    )
 
     return res.status(200).json({
       success: true,
@@ -515,7 +601,8 @@ const getDriverRides = async (req, res) => {
 }
 
 
-// Rider: Cancel a requested or accepted ride
+
+ // Rider: Cancel a requested or accepted ride
 const cancelRide = async (req, res) => {
   try {
     const { id } = req.params
@@ -547,6 +634,14 @@ const cancelRide = async (req, res) => {
       })
     }
 
+    // Real-time notification: ride cancelled
+    emitRideUpdate(
+      req,
+      result.rows[0],
+      'cancelled',
+      'Your ride has been cancelled'
+    )
+
     return res.status(200).json({
       success: true,
       message: 'Ride cancelled successfully',
@@ -561,6 +656,7 @@ const cancelRide = async (req, res) => {
     })
   }
 }
+
 
 
 module.exports = {
