@@ -12,7 +12,11 @@ const app = express()
 
 app.use(helmet())
 app.use(cors({
-  origin: 'http://localhost:5173',
+  origin: [
+    'http://localhost:5173',
+    'https://cabgo-frontend.vercel.app',
+    'https://cabgo-frontend-p4kt9dwuy-alon-8ebb.vercel.app',
+  ],
 }))
 app.use(express.json())
 app.use(morgan('dev'))
